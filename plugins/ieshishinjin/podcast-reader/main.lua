@@ -8,7 +8,7 @@ local STORAGE_PODS = "podcast_feeds"
 local STORAGE_EPS = "podcast_episodes"
 local STORAGE_HEARD = "podcast_heard"
 
-local state = { podcasts = {}, episodes = {}, heard = {}, currentPod = nil, currentEp = nil, showAdd = false }
+local state = { podcasts = {}, episodes = {}, heard = {}, currentPod = nil, currentEp = nil, showAdd = false, playerOpen = true }
 local coreInjected = false
 
 -- ============================================================
@@ -176,6 +176,7 @@ local function loadState()
   state.podcasts = (ok1 and p) and deepCopy(p) or {}
   state.episodes = (ok2 and e) and deepCopy(e) or {}
   state.heard = (ok3 and h) and deepCopy(h) or {}
+  state.playerOpen = sl.storage.get("show_player") ~= false
 end
 local function saveAll()
   pcall(function() sl.storage.set(STORAGE_PODS, deepCopy(state.podcasts)) end)
@@ -349,7 +350,9 @@ function syncPlayerUI(url)
   js = js .. "var p=d.getElementById('pr-pb-pod');if(p)p.textContent='" .. jsStr(pod.title or "") .. "';"
   js = js .. "var u=d.getElementById('pr-pb-total');if(u)u.textContent='" .. (ep.duration and fmtDur(ep.duration) or "0:00") .. "';"
   js = js .. "var ar=d.getElementById('pr-pb-art');" .. artJS
-  js = js .. "var b=d.getElementById('pr-player-bar');if(b)b.style.display='flex';"
+  if state.playerOpen ~= false then
+    js = js .. "var b=d.getElementById('pr-player-bar');if(b)b.style.display='flex';"
+  end
   js = js .. "}catch(e){}"
   pcall(function() sl.ui.inject_html("pr-pb-upd", "<script>" .. js .. "</script>") end)
 end
@@ -466,7 +469,7 @@ local function processCmd(cmd, args)
   if cmd == "remove" then removePodcast(args.id); sl.ui.toast("info", "已取消订阅"); renderUI(); return end
   if cmd == "refresh" then
     local ok2, msg = refreshPod(args.id)
-    sl.ui.toast(ok2 and "success" or "ok", ok2 and ((tonumber(msg) or 0) > 0 and "新增 " .. msg .. " 集" or "没有新剧集") or "失败: " .. tostring(msg))
+    sl.ui.toast(ok2 and "success" or "error", ok2 and ((tonumber(msg) or 0) > 0 and "新增 " .. msg .. " 集" or "没有新剧集") or "失败: " .. tostring(msg))
     renderUI(); return
   end
   if cmd == "play" then
@@ -486,7 +489,13 @@ local function processCmd(cmd, args)
       local ni = (cmd == "next") and idx + 1 or idx - 1
       if ni >= 1 and ni <= #eps then
         state.currentEp = eps[ni].id; state.heard[eps[ni].id] = true; saveAll()
-        for _, e in ipairs(state.episodes) do if e.id == eps[ni].id then syncPlayerUI(e.url); break end end
+        for _, e in ipairs(state.episodes) do if e.id == eps[ni].id then
+          syncPlayerUI(e.url)
+          -- 切换音频源
+          local u = jsStr(e.url)
+          pcall(function() sl.ui.inject_html("pr-pb-switch", "<script>try{var a=document.getElementById('pr-audio');if(a){a.src='" .. u .. "';a.play();}}catch(ex){}</script>") end)
+          break
+        end end
       end
     end
     renderUI(); return
