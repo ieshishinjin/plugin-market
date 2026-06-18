@@ -385,33 +385,30 @@ A.addEventListener("pause",function(){var p=document.getElementById("pr-play-btn
 // 进度条轮询
 setInterval(function(){
   try{
-    if(!A)return;
-    var dur=A.duration||0;
-    var cur=A.currentTime||0;
-    var pct=(dur>0&&!isNaN(dur))?(cur/dur*100):0;
-    var f=document.getElementById("pr-seek-fill");
-    var c=document.getElementById("pr-pb-cur");
+    if(!A||!A.duration||isNaN(A.duration))return;
+    var cur=A.currentTime||0,pct=cur/A.duration*100;
+    var f=document.getElementById("pr-seek-fill"),c=document.getElementById("pr-pb-cur");
     if(f)f.style.width=Math.min(pct,100)+"%";
     if(c){var m=Math.floor(cur/60),s=Math.floor(cur%60);c.textContent=m+":"+(s<10?"0":"")+s;}
   }catch(e){}
 },200);
-// 播放栏跟随侧栏位置
+// 播放栏跟随侧栏（轮询 offsetWidth + resize）
 function alignPlayer(){
   var s=document.querySelector('.sidebar');
   if(s){var w=s.offsetWidth;PB.style.left=w+'px';PB.style.width=(window.innerWidth-w)+'px';}
   else{PB.style.left='0px';PB.style.width='100%';}
 }
 window.addEventListener('resize',alignPlayer);
-setInterval(alignPlayer,200);
+setInterval(alignPlayer,500);
 PB.style.display="none";
-// 清理重复
-var mo=new MutationObserver(function(){
+// 防抖 MutationObserver
+var dt;
+var mo=new MutationObserver(function(){clearTimeout(dt);dt=setTimeout(function(){
   var all=document.querySelectorAll('.pr-app');
   if(all.length>1)for(var i=1;i<all.length;i++){var w=all[i].closest('[data-plugin-inserted]');if(w)w.remove();}
-  // 强制移除插件页默认内容
-  var c=document.querySelector('.plugin-page-view');
-  if(c){var h=c.querySelectorAll('.info-card,.settings-card,.presets-card,.action-buttons,.page-header');for(var i=0;i<h.length;i++)h[i].style.display='none';}
-});
+  var pg=document.querySelector('.plugin-page-view');
+  if(pg)pg.querySelectorAll('.info-card,.settings-card,.presets-card,.action-buttons,.page-header').forEach(function(el){el.style.display='none';});
+},100);});
 mo.observe(document.body,{childList:true,subtree:true});
 // 事件代理
 document.body.addEventListener("click",function(e){
@@ -447,7 +444,7 @@ document.body.addEventListener("keydown",function(e){
     var el=document.getElementById("pr-add-url");ipc("add-podcast",{url:el?el.value:""});}
 });
 if(document.querySelector(".plugin-content"))ipc("page-ready");
-else{var mo=new MutationObserver(function(){if(document.querySelector(".plugin-content")){ipc("page-ready");mo.disconnect();}});mo.observe(document.body,{childList:true,subtree:true});}
+else{var mo2=new MutationObserver(function(){if(document.querySelector(".plugin-content")){ipc("page-ready");mo2.disconnect();}});mo2.observe(document.body,{childList:true,subtree:true});}
 })();</script>]==]
 end
 
@@ -475,7 +472,7 @@ local function processCmd(cmd, args)
   if cmd == "play" then
     local url = args.url or ""
     for _, e in ipairs(state.episodes) do if e.url == url then state.currentEp = e.id; state.heard[e.id] = true; saveAll(); break end end
-    syncPlayerUI(url); renderUI(); return
+    syncPlayerUI(url); return
   end
   if cmd == "select_ep" then
     state.currentEp = args.id; state.heard[args.id] = true; saveAll()
@@ -491,14 +488,13 @@ local function processCmd(cmd, args)
         state.currentEp = eps[ni].id; state.heard[eps[ni].id] = true; saveAll()
         for _, e in ipairs(state.episodes) do if e.id == eps[ni].id then
           syncPlayerUI(e.url)
-          -- 切换音频源
           local u = jsStr(e.url)
           pcall(function() sl.ui.inject_html("pr-pb-switch", "<script>try{var a=document.getElementById('pr-audio');if(a){a.src='" .. u .. "';a.play();}}catch(ex){}</script>") end)
           break
         end end
       end
     end
-    renderUI(); return
+    return
   end
 end
 
